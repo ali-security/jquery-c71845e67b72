@@ -2430,3 +2430,94 @@ test( "Validate creation of multiple quantities of certain elements (#13818)", 4
 		});
 	});
 });
+
+test( "<option>/<optgroup> HTML isn't parsed inside a <select> wrapper (CVE-2020-11023)", function() {
+	var elems,
+		probe = document.createElement( "div" );
+
+	// Support: IE9
+	// IE9 replaces <option> tags with their contents when inserted outside of
+	// the select element, so the <select> wrapper is still needed there.
+	probe.innerHTML = "<option></option>";
+	if ( !probe.lastChild ) {
+		expect( 1 );
+		ok( true, "<option> needs a <select> wrapper in this browser" );
+		return;
+	}
+
+	expect( 7 );
+
+	// Inside a <select> wrapper the stray </select> would close the wrapper
+	// and change how the rest of the markup is parsed.
+	elems = jQuery( "<option>a</option></select><b>b</b>" );
+	equal( elems.length, 2, "jQuery(): option and its sibling are both created" );
+	ok( elems[ 0 ] && jQuery.nodeName( elems[ 0 ], "option" ), "jQuery(): first node is the option" );
+	ok( elems[ 1 ] && jQuery.nodeName( elems[ 1 ], "b" ), "jQuery(): second node is the sibling" );
+
+	equal( jQuery.parseHTML( "<optgroup label='g'></optgroup></select><b>b</b>" ).length, 2,
+		"jQuery.parseHTML(): optgroup and its sibling are both created" );
+
+	equal( jQuery( "<div></div>" ).html( "<option>a</option></select><b>b</b>" ).children().length, 2,
+		"html(): option and its sibling are both created" );
+
+	equal( jQuery( "<div></div>" ).append( "<optgroup label='g'></optgroup></select><b>b</b>" ).children().length, 2,
+		"append(): optgroup and its sibling are both created" );
+
+	equal( jQuery( "<select></select>" ).append( "<option>a</option><option>b</option>" ).children( "option" ).length, 2,
+		"append(): options are still appended to a select" );
+});
+
+test( "Sanitized <option>/<optgroup> HTML doesn't get unsanitized (CVE-2020-11023)", function() {
+	var container, i, j, payload,
+		counter = 0,
+		executed = {},
+		payloads = [],
+		templates = [
+			"<option><style></option></select><img src=url404 onerror=xss(#)></style>",
+			"<optgroup><style></optgroup></select><img src=url404 onerror=xss(#)></style>",
+			"<option><xmp></option></select><img src=url404 onerror=xss(#)></xmp>"
+		],
+		methods = [
+			[ "html", function( html ) {
+				jQuery( "<div></div>" ).appendTo( container ).html( html );
+			} ],
+			[ "append", function( html ) {
+				jQuery( "<div></div>" ).appendTo( container ).append( html );
+			} ],
+			[ "prepend", function( html ) {
+				jQuery( "<div></div>" ).appendTo( container ).prepend( html );
+			} ],
+			[ "jQuery", function( html ) {
+				jQuery( html );
+			} ],
+			[ "jQuery.parseHTML", function( html ) {
+				jQuery.parseHTML( html );
+			} ]
+		];
+
+	expect( templates.length * methods.length );
+
+	Globals.register( "xss" );
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	container = jQuery( "<div></div>" ).appendTo( "#qunit-fixture" );
+
+	for ( i = 0; i < templates.length; i++ ) {
+		for ( j = 0; j < methods.length; j++ ) {
+			payload = templates[ i ].replace( "#", counter );
+			payloads.push( methods[ j ][ 0 ] + "( " + payload + " )" );
+			methods[ j ][ 1 ]( payload );
+			counter++;
+		}
+	}
+
+	stop();
+	setTimeout(function() {
+		for ( i = 0; i < payloads.length; i++ ) {
+			ok( !executed[ i ], "Payload #" + i + " isn't executed: " + payloads[ i ] );
+		}
+		start();
+	}, 1000 );
+});
