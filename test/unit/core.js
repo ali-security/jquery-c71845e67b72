@@ -1114,6 +1114,13 @@ test("jQuery.extend(true,{},{a:[], o:{}}); deep copy with array, followed by obj
 	ok( !jQuery.isArray( result.object ), "result.object wasn't paved with an empty array" );
 });
 
+test( "jQuery.extend( true, ... ) Object.prototype pollution", function() {
+	expect( 1 );
+
+	jQuery.extend( true, {}, JSON.parse( "{\"__proto__\": {\"devMode\": true}}" ) );
+	ok( !( "devMode" in {} ), "Object.prototype not polluted" );
+});
+
 test("jQuery.each(Object,Function)", function() {
 	expect( 23 );
 
