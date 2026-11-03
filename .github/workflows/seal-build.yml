@@ -1,0 +1,109 @@
+name: seal-build
+
+# Build-and-pack only. The unit suite (lint/build/node-smoke-test under node
+# 0.10 and 0.11, plus the real QUnit suite in headless Chrome) runs on Travis
+# via .travis.yml.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write container scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/seal"
+
+          # dist/cdn copies, as build/release.js makeReleaseCopies() makes them
+          # for the VER keys (the release tooling itself is interactive).
+          cat > "$RUNNER_TEMP/seal/make-cdn-copies.js" <<'SEAL_CDN_EOF'
+          var fs = require( "fs" );
+          var version = require( process.cwd() + "/package.json" ).version;
+          var cdn = "dist/cdn";
+          if ( !fs.existsSync( cdn ) ) {
+            fs.mkdirSync( cdn );
+          }
+          var base = "jquery-" + version;
+          fs.writeFileSync( cdn + "/" + base + ".js", fs.readFileSync( "dist/jquery.js" ) );
+          var min = fs.readFileSync( "dist/jquery.min.js", "utf8" )
+            .replace( /\/\/# sourceMappingURL=\S+/, "" );
+          fs.writeFileSync( cdn + "/" + base + ".min.js", min );
+          var map = fs.readFileSync( "dist/jquery.min.map", "utf8" )
+            .replace( /"file":"([^"]+)","sources":\["([^"]+)"\]/,
+              "\"file\":\"" + base + ".min.js\",\"sources\":[\"" + base + ".js\"]" );
+          fs.writeFileSync( cdn + "/" + base + ".min.map", map );
+          console.log( "wrote " + fs.readdirSync( cdn ).join( ", " ) );
+          SEAL_CDN_EOF
+
+          cat > "$RUNNER_TEMP/seal/build.sh" <<'SEAL_BUILD_EOF'
+          set -euo pipefail
+          node --version
+          npm --version
+          # The live registry has drifted (contextify/jsdom 1.5.0 deps no longer
+          # install on node 0.10); resolve as of the 2.1.3 release.
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken 2014-12-18T15:18:38.205Z
+          # npm 2 only sends the token when always-auth is on
+          npm config set always-auth true
+          npm install
+
+          # Reproducibility pins. build/ is not part of the shipped package.
+          DATE_EXPR='( new Date() ).toISOString().replace( /:\d+\.\d+Z$/, "Z" )'
+          if ! grep -qF "$DATE_EXPR" build/tasks/build.js; then
+            echo "@DATE expression not found in build/tasks/build.js"
+            exit 1
+          fi
+          sed -i 's|( new Date() ).toISOString().replace( /:\\d+\\.\\d+Z$/, "Z" )|"2014-12-18T15:11Z"|' build/tasks/build.js
+          if grep -qF "$DATE_EXPR" build/tasks/build.js; then
+            echo "@DATE pin did not apply"
+            exit 1
+          fi
+          grep -n '2014-12-18T15:11Z' build/tasks/build.js
+          # Uglify banner year is pinned in Gruntfile.js; fail if it is not.
+          if grep -q "grunt.template.today" Gruntfile.js; then
+            echo "Gruntfile.js banner year is not pinned"
+            exit 1
+          fi
+          unset COMMIT
+
+          # = npm test: jsonlint, build, jshint, jscs, uglify, dist,
+          # compare_size, node-smoke-test
+          ./node_modules/.bin/grunt
+          node /seal/make-cdn-copies.js
+
+          # Keep the tarball to exactly what the release shipped.
+          rm -rf node_modules .github
+          rm -f npm-debug.log
+          chown -R "$HOST_UID:$HOST_GID" /work
+          # npm 2.x keeps .npmignore in the tarball, as the reference does
+          npm pack
+          test -f jquery-2.1.3.tgz
+          tar tzf jquery-2.1.3.tgz | sort
+          echo "member count: $(tar tzf jquery-2.1.3.tgz | wc -l)"
+          chown -R "$HOST_UID:$HOST_GID" /work
+          SEAL_BUILD_EOF
+
+      - name: Build and pack (node 0.10 / npm 2, grunt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD":/work \
+            -v "$RUNNER_TEMP/seal":/seal \
+            -w /work \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            node:0.10-wheezy bash /seal/build.sh
+          ls -la jquery-2.1.3.tgz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jquery-tgz
+          path: jquery-2.1.3.tgz
+          if-no-files-found: error
