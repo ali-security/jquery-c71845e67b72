@@ -2487,7 +2487,8 @@ test( "Sanitized <option>/<optgroup> HTML doesn't get unsanitized (CVE-2020-1102
 				jQuery( html );
 			} ],
 			[ "jQuery.parseHTML", function( html ) {
-				jQuery.parseHTML( html );
+				// Parse into the page document: in the default inert one an <img> never loads, so the payload could never run
+				jQuery.parseHTML( html, document );
 			} ]
 		];
 
@@ -2588,7 +2589,8 @@ test( "Sanitized HTML doesn't get unsanitized (CVE-2020-11022)", function() {
 				return jQuery( html );
 			} ],
 			[ "jQuery.parseHTML", function( html ) {
-				return jQuery( jQuery.parseHTML( html ) );
+				// Parse into the page document: the default inert one has scripting off, so <noscript> content would parse as markup
+				return jQuery( jQuery.parseHTML( html, document ) );
 			} ]
 		],
 		countInjected = function( nodes ) {

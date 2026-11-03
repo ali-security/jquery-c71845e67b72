@@ -1362,6 +1362,32 @@ test("jQuery.parseHTML", function() {
 	ok( jQuery.parseHTML("<#if><tr><p>This is a test.</p></tr><#/if>") || true, "Garbage input should not cause error" );
 });
 
+// Support: Safari 8 (jQuery.support.createHTMLDocument === false; the protection is off there)
+if ( jQuery.support.createHTMLDocument !== false ) {
+	asyncTest( "jQuery.parseHTML - inline event handlers are not executed (sonatype-2014-0026)", function() {
+		expect( 1 );
+
+		Globals.register( "parseHTMLError" );
+
+		jQuery.globalEval( "parseHTMLError = false;" );
+		jQuery.parseHTML( "<img src=x onerror='parseHTMLError = true'>" );
+
+		window.setTimeout(function() {
+			start();
+			equal( window.parseHTMLError, false, "onerror eventhandler has not been called." );
+		}, 2000 );
+	});
+}
+
+test( "jQuery.parseHTML(<a href>) - gh-2965", function() {
+	expect( 1 );
+
+	var html = "<a href='test.html'></a>",
+		href = jQuery.parseHTML( html )[ 0 ].href;
+
+	ok( /\/test\.html$/.test( href ), "href is not lost after parsing anchor" );
+});
+
 test("jQuery.parseJSON", function() {
 	expect( 20 );
 
