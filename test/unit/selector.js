@@ -257,7 +257,7 @@ test("attributes", function() {
 test("disconnected nodes", function() {
 	expect( 1 );
 
-	var $div = jQuery("<div/>");
+	var $div = jQuery("<div></div>");
 	equal( $div.is("div"), true, "Make sure .is('nodeName') works on disconnected nodes." );
 });
 
